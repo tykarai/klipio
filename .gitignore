@@ -5,3 +5,4 @@ node_modules
 .DS_Store
 klipio_do_key
 klipio_do_key.pub
+.vercel

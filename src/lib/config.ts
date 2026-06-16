@@ -84,98 +84,149 @@ function loadConfig() {
   return parsed.data;
 }
 
-const raw = loadConfig();
+// ─── Lazy-loaded Config ───────────────────────────────────────
+// Only validates env vars at runtime, not during build
 
-// ─── Typed Exports ────────────────────────────────────────────
+let _config: ReturnType<typeof buildConfig> | null = null;
 
-export const config = {
-  // App
-  appUrl: raw.NEXT_PUBLIC_APP_URL,
-  nodeEnv: raw.NODE_ENV,
-  isDev: raw.NODE_ENV === "development",
-  isProd: raw.NODE_ENV === "production",
+function buildConfig() {
+  // Skip validation during Next.js build phase — return dummy config
+  if (process.env.NEXT_PHASE === "phase-production-build" || process.env.NEXT_PHASE === "phase-development-build" || !process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    return {
+      appUrl: "https://klipio.io",
+      nodeEnv: "production",
+      isDev: false,
+      isProd: true,
+      supabase: { url: "https://dummy.supabase.co", anonKey: "dummy", serviceRoleKey: "dummy" },
+      r2: { accountId: "dummy", accessKeyId: "dummy", secretAccessKey: "dummy", bucketName: "dummy", publicUrl: undefined, endpoint: "https://dummy.r2.cloudflarestorage.com", region: "auto", expirySeconds: 86400 },
+      vps: { host: "dummy", port: 22, user: "dummy", privateKey: "dummy", passphrase: undefined },
+      ytdlp: { path: "/usr/local/bin/yt-dlp", ffprobePath: "/usr/bin/ffprobe", ffmpegPath: "/usr/bin/ffmpeg", globalArgs: [] },
+      proxy: { primaryUrl: undefined, backupUrls: [], username: undefined, password: undefined },
+      rateLimit: { anonymousPerHour: 10, registeredPerHour: 100, windowMs: 3600000 },
+      features: { enableAnalysis: false, enableTikTok: true, enableInstagram: true, enableFacebook: true, enableYouTube: true, enableTwitter: true },
+      ai: { openaiKey: undefined, geminiKey: undefined, whisperUrl: undefined },
+      logLevel: "info",
+      sentryDsn: undefined,
+    } as const;
+  }
 
-  // Supabase
-  supabase: {
-    url: raw.NEXT_PUBLIC_SUPABASE_URL,
-    anonKey: raw.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    serviceRoleKey: raw.SUPABASE_SERVICE_ROLE_KEY,
+  const parsed = envSchema.safeParse(process.env);
+
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
+      .join("\n");
+    throw new Error(
+      `❌ Environment validation failed:\n${issues}\n\n` +
+        `Please check your .env file or deployment environment variables.`
+    );
+  }
+
+  const raw = parsed.data;
+
+  return {
+    // App
+    appUrl: raw.NEXT_PUBLIC_APP_URL,
+    nodeEnv: raw.NODE_ENV,
+    isDev: raw.NODE_ENV === "development",
+    isProd: raw.NODE_ENV === "production",
+
+    // Supabase
+    supabase: {
+      url: raw.NEXT_PUBLIC_SUPABASE_URL,
+      anonKey: raw.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      serviceRoleKey: raw.SUPABASE_SERVICE_ROLE_KEY,
+    },
+
+    // R2
+    r2: {
+      accountId: raw.R2_ACCOUNT_ID,
+      accessKeyId: raw.R2_ACCESS_KEY_ID,
+      secretAccessKey: raw.R2_SECRET_ACCESS_KEY,
+      bucketName: raw.R2_BUCKET_NAME,
+      publicUrl: raw.R2_PUBLIC_URL,
+      endpoint: `https://${raw.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      region: "auto",
+      expirySeconds: 24 * 60 * 60,
+    },
+
+    // VPS / yt-dlp
+    vps: {
+      host: raw.VPS_HOST,
+      port: parseInt(raw.VPS_PORT, 10),
+      user: raw.VPS_USER,
+      privateKey: raw.VPS_PRIVATE_KEY,
+      passphrase: raw.VPS_SSH_PASSPHRASE,
+    },
+
+    ytdlp: {
+      path: raw.YTDLP_PATH,
+      ffprobePath: raw.FFPROBE_PATH,
+      ffmpegPath: raw.FFMPEG_PATH,
+      globalArgs: [
+        "--no-warnings",
+        "--no-check-certificates",
+        "--socket-timeout", "30",
+        "--retries", "3",
+        "--fragment-retries", "3",
+        "--skip-unavailable-fragments",
+        "--no-overwrites",
+      ],
+    },
+
+    // Proxy
+    proxy: {
+      primaryUrl: raw.PROXY_PRIMARY_URL,
+      backupUrls: raw.PROXY_BACKUP_URLS ? raw.PROXY_BACKUP_URLS.split(",") : [],
+      username: raw.PROXY_USERNAME,
+      password: raw.PROXY_PASSWORD,
+    },
+
+    // Rate Limiting
+    rateLimit: {
+      anonymousPerHour: parseInt(raw.RATE_LIMIT_ANONYMOUS, 10),
+      registeredPerHour: parseInt(raw.RATE_LIMIT_REGISTERED, 10),
+      windowMs: parseInt(raw.RATE_LIMIT_WINDOW_MS, 10),
+    },
+
+    // Feature Flags
+    features: {
+      enableAnalysis: raw.ENABLE_ANALYSIS === "true",
+      enableTikTok: raw.ENABLE_TIKTOK === "true",
+      enableInstagram: raw.ENABLE_INSTAGRAM === "true",
+      enableFacebook: raw.ENABLE_FACEBOOK === "true",
+      enableYouTube: raw.ENABLE_YOUTUBE === "true",
+      enableTwitter: raw.ENABLE_TWITTER === "true",
+    },
+
+    // AI Pipeline
+    ai: {
+      openaiKey: raw.OPENAI_API_KEY,
+      geminiKey: raw.GEMINI_API_KEY,
+      whisperUrl: raw.WHISPER_API_URL,
+    },
+
+    // Observability
+    logLevel: raw.LOG_LEVEL,
+    sentryDsn: raw.SENTRY_DSN,
+  } as const;
+}
+
+export const config = new Proxy({} as ReturnType<typeof buildConfig>, {
+  get(_, prop) {
+    if (!_config) {
+      _config = buildConfig();
+    }
+    return _config[prop as keyof typeof _config];
   },
+});
 
-  // R2
-  r2: {
-    accountId: raw.R2_ACCOUNT_ID,
-    accessKeyId: raw.R2_ACCESS_KEY_ID,
-    secretAccessKey: raw.R2_SECRET_ACCESS_KEY,
-    bucketName: raw.R2_BUCKET_NAME,
-    publicUrl: raw.R2_PUBLIC_URL,
-    endpoint: `https://${raw.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    region: "auto",
-    // Files auto-expire after 24 hours
-    expirySeconds: 24 * 60 * 60,
-  },
-
-  // VPS / yt-dlp
-  vps: {
-    host: raw.VPS_HOST,
-    port: parseInt(raw.VPS_PORT, 10),
-    user: raw.VPS_USER,
-    privateKey: raw.VPS_PRIVATE_KEY,
-    passphrase: raw.VPS_SSH_PASSPHRASE,
-  },
-
-  ytdlp: {
-    path: raw.YTDLP_PATH,
-    ffprobePath: raw.FFPROBE_PATH,
-    ffmpegPath: raw.FFMPEG_PATH,
-    // Global options passed to every yt-dlp invocation
-    globalArgs: [
-      "--no-warnings",
-      "--no-check-certificates",
-      "--socket-timeout", "30",
-      "--retries", "3",
-      "--fragment-retries", "3",
-      "--skip-unavailable-fragments",
-      "--no-overwrites",
-    ],
-  },
-
-  // Proxy
-  proxy: {
-    primaryUrl: raw.PROXY_PRIMARY_URL,
-    backupUrls: raw.PROXY_BACKUP_URLS ? raw.PROXY_BACKUP_URLS.split(",") : [],
-    username: raw.PROXY_USERNAME,
-    password: raw.PROXY_PASSWORD,
-  },
-
-  // Rate Limiting
-  rateLimit: {
-    anonymousPerHour: parseInt(raw.RATE_LIMIT_ANONYMOUS, 10),
-    registeredPerHour: parseInt(raw.RATE_LIMIT_REGISTERED, 10),
-    windowMs: parseInt(raw.RATE_LIMIT_WINDOW_MS, 10),
-  },
-
-  // Feature Flags
-  features: {
-    enableAnalysis: raw.ENABLE_ANALYSIS === "true",
-    enableTikTok: raw.ENABLE_TIKTOK === "true",
-    enableInstagram: raw.ENABLE_INSTAGRAM === "true",
-    enableFacebook: raw.ENABLE_FACEBOOK === "true",
-    enableYouTube: raw.ENABLE_YOUTUBE === "true",
-    enableTwitter: raw.ENABLE_TWITTER === "true",
-  },
-
-  // AI Pipeline
-  ai: {
-    openaiKey: raw.OPENAI_API_KEY,
-    geminiKey: raw.GEMINI_API_KEY,
-    whisperUrl: raw.WHISPER_API_URL,
-  },
-
-  // Observability
-  logLevel: raw.LOG_LEVEL,
-  sentryDsn: raw.SENTRY_DSN,
-} as const;
+export function getConfig() {
+  if (!_config) {
+    _config = buildConfig();
+  }
+  return _config;
+}
 
 // ─── Supported Platforms ──────────────────────────────────────
 
