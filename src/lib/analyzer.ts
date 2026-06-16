@@ -33,6 +33,7 @@ import {
   VisionAnalysisResult,
   PipelineProgress,
   PipelineError,
+  OpenRouterMessage,
 } from "@/types/analysis";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -388,7 +389,7 @@ export class AnalysisOrchestrator {
       if (!frame.base64) continue;
 
       try {
-        const messages = [
+        const messages: OpenRouterMessage[] = [
           {
             role: "system" as const,
             content:

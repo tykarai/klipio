@@ -15,11 +15,9 @@
 
 import { createServiceClient, type Database } from "./supabase";
 import {
-  config,
   createLogger,
-  RETRY_CONFIG,
   type JobType,
-  type JobStatus,
+  type QueueJobStatus,
 } from "./config";
 
 const logger = createLogger("queue");
@@ -69,7 +67,6 @@ export interface DeadLetterEntry {
 // ═══════════════════════════════════════════════════════════════
 
 const DEFAULT_MAX_ATTEMPTS = 3;
-const DEAD_LETTER_THRESHOLD = 3; // Failed this many times → dead letter
 const PROCESSING_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes before a job is considered stalled
 const MAX_SCHEDULE_DELAY_MS = 24 * 60 * 60 * 1000; // Max 24h in future
 
@@ -159,6 +156,8 @@ export async function createDownloadJob(
     quality: string;
     userId?: string | null;
     ipAddress?: string | null;
+    startTime?: number;
+    endTime?: number;
   }
 ): Promise<string> {
   const job = await createJob({
@@ -170,6 +169,8 @@ export async function createDownloadJob(
       platform: payload.platform,
       quality: payload.quality,
       userId: payload.userId || null,
+      startTime: payload.startTime,
+      endTime: payload.endTime,
     },
     ipAddress: payload.ipAddress || null,
   });
@@ -579,7 +580,7 @@ export async function getQueueStats(): Promise<QueueStats> {
 
   if (error || !data) {
     // Fallback: count manually
-    const statuses: JobStatus[] = [
+    const statuses: QueueJobStatus[] = [
       "queued",
       "processing",
       "completed",
@@ -607,13 +608,15 @@ export async function getQueueStats(): Promise<QueueStats> {
     };
   }
 
+  const stats = Array.isArray(data) ? data[0] : data;
+
   return {
-    queued: data.queued || 0,
-    processing: data.processing || 0,
-    completed: data.completed || 0,
-    failed: data.failed || 0,
-    deadLetter: data.dead_letter || 0,
-    avgProcessingTimeMs: data.avg_processing_time_ms,
+    queued: stats?.queued || 0,
+    processing: stats?.processing || 0,
+    completed: stats?.completed || 0,
+    failed: stats?.failed || 0,
+    deadLetter: stats?.dead_letter || 0,
+    avgProcessingTimeMs: stats?.avg_processing_time_ms ?? null,
   };
 }
 
@@ -646,8 +649,8 @@ export async function getJob(
 /**
  * Get the status of a job as a user-friendly string.
  */
-export function getJobStatusDisplay(status: JobStatus): string {
-  const display: Record<JobStatus, string> = {
+export function getJobStatusDisplay(status: QueueJobStatus): string {
+  const display: Record<QueueJobStatus, string> = {
     queued: "Queued",
     processing: "Processing",
     completed: "Completed",

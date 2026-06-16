@@ -41,6 +41,7 @@ export interface DownloadRecord {
   title: string | null;
   thumbnail_url: string | null;
   author: string | null;
+  description: string | null;
   error_code: string | null;
   error_message: string | null;
   retry_count: number;
@@ -126,7 +127,7 @@ export interface JobRecord {
 
 export interface RateLimitRecord {
   id: string;
-  ip_address: string;
+  ip_address: string | null;
   user_id: string | null;
   requests_count: number;
   window_start: string;
@@ -134,40 +135,44 @@ export interface RateLimitRecord {
   updated_at: string;
 }
 
+export interface DeadLetterRecord {
+  id: string;
+  job_id: string;
+  type: "extract" | "download" | "analyze";
+  payload: Record<string, unknown>;
+  error: string;
+  attempts: number;
+  failed_at: string;
+  worker_id: string | null;
+  retried: boolean;
+  created_at: string;
+}
+
+type TableShape<Row, Insert = Row, Update = Partial<Row>> = {
+  Row: Row;
+  Insert: Insert;
+  Update: Update;
+  Relationships: [];
+};
+
+type InsertWithTimestamps<Row> = Partial<Row>;
+
 export interface Database {
   public: {
     Tables: {
       downloads: {
         Row: DownloadRecord;
-        Insert: Omit<DownloadRecord, "created_at" | "updated_at"> &
-          Partial<Pick<DownloadRecord, "created_at" | "updated_at">>;
+        Insert: InsertWithTimestamps<DownloadRecord>;
         Update: Partial<DownloadRecord>;
+        Relationships: [];
       };
-      analyses: {
-        Row: AnalysisRecord;
-        Insert: Omit<AnalysisRecord, "created_at" | "updated_at"> &
-          Partial<Pick<AnalysisRecord, "created_at" | "updated_at">>;
-        Update: Partial<AnalysisRecord>;
-      };
-      profiles: {
-        Row: ProfileRecord;
-        Insert: Omit<ProfileRecord, "created_at" | "updated_at"> &
-          Partial<Pick<ProfileRecord, "created_at" | "updated_at">>;
-        Update: Partial<ProfileRecord>;
-      };
-      jobs: {
-        Row: JobRecord;
-        Insert: Omit<JobRecord, "created_at" | "updated_at"> &
-          Partial<Pick<JobRecord, "created_at" | "updated_at">>;
-        Update: Partial<JobRecord>;
-      };
-      rate_limits: {
-        Row: RateLimitRecord;
-        Insert: Omit<RateLimitRecord, "created_at" | "updated_at"> &
-          Partial<Pick<RateLimitRecord, "created_at" | "updated_at">>;
-        Update: Partial<RateLimitRecord>;
-      };
+      analyses: TableShape<AnalysisRecord, InsertWithTimestamps<AnalysisRecord>>;
+      profiles: TableShape<ProfileRecord, InsertWithTimestamps<ProfileRecord>>;
+      jobs: TableShape<JobRecord, InsertWithTimestamps<JobRecord>>;
+      rate_limits: TableShape<RateLimitRecord, InsertWithTimestamps<RateLimitRecord>>;
+      dead_letter: TableShape<DeadLetterRecord, Omit<DeadLetterRecord, "id"> & Partial<Pick<DeadLetterRecord, "id">>>;
     };
+    Views: Record<string, never>;
     Functions: {
       // Custom RPC functions for queue management
       pop_job: {
@@ -184,7 +189,22 @@ export interface Database {
       };
       get_user_download_quota: {
         Args: { p_user_id: string };
-        Returns: { used: number; quota: number; reset_at: string };
+        Returns: { used: number; quota: number; reset_at: string }[];
+      };
+      increment_download_count: {
+        Args: { p_user_id: string };
+        Returns: void;
+      };
+      get_queue_stats: {
+        Args: Record<string, never>;
+        Returns: {
+          queued: number;
+          processing: number;
+          completed: number;
+          failed: number;
+          dead_letter: number;
+          avg_processing_time_ms: number | null;
+        }[];
       };
     };
   };
@@ -206,7 +226,7 @@ export function createBrowserClient() {
     );
   }
 
-  return createClient<Database>(config.supabase.url, config.supabase.anonKey, {
+  return createClient(config.supabase.url, config.supabase.anonKey, {
     auth: {
       autoRefreshToken: true,
       persistSession: true,
@@ -223,7 +243,7 @@ export function createBrowserClient() {
 export async function createServerSupabaseClient() {
   const cookieStore = await cookies();
 
-  return createServerClient<Database>(
+  return createServerClient(
     config.supabase.url,
     config.supabase.anonKey,
     {
@@ -258,7 +278,7 @@ export async function createServerSupabaseClient() {
  * Use only in trusted server contexts.
  */
 export function createServiceClient() {
-  return createClient<Database>(
+  return createClient(
     config.supabase.url,
     config.supabase.serviceRoleKey,
     {
@@ -278,7 +298,7 @@ export async function createRouteHandlerClient(
   request: NextRequest,
   response: NextResponse
 ) {
-  return createServerClient<Database>(
+  return createServerClient(
     config.supabase.url,
     config.supabase.anonKey,
     {
@@ -301,14 +321,14 @@ export async function createRouteHandlerClient(
 //  HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════
 
-const service = createServiceClient();
-
 /**
  * Fetch a download record by ID with full typing.
  */
 export async function getDownloadById(
   id: string
 ): Promise<DownloadRecord | null> {
+  const service = createServiceClient();
+
   const { data, error } = await service
     .from("downloads")
     .select("*")
@@ -331,6 +351,8 @@ export async function updateDownload(
   id: string,
   updates: Partial<DownloadRecord>
 ): Promise<DownloadRecord> {
+  const service = createServiceClient();
+
   const { data, error } = await service
     .from("downloads")
     .update({ ...updates, updated_at: new Date().toISOString() })
@@ -352,6 +374,8 @@ export async function updateDownload(
 export async function createDownload(
   insert: Database["public"]["Tables"]["downloads"]["Insert"]
 ): Promise<DownloadRecord> {
+  const service = createServiceClient();
+
   const { data, error } = await service
     .from("downloads")
     .insert({
@@ -376,6 +400,8 @@ export async function createDownload(
 export async function getAnalysisByDownloadId(
   downloadId: string
 ): Promise<AnalysisRecord | null> {
+  const service = createServiceClient();
+
   const { data, error } = await service
     .from("analyses")
     .select("*")
@@ -400,6 +426,8 @@ export async function getAnalysisByDownloadId(
 export async function upsertProfile(
   profile: Database["public"]["Tables"]["profiles"]["Insert"]
 ): Promise<ProfileRecord> {
+  const service = createServiceClient();
+
   const { data, error } = await service
     .from("profiles")
     .upsert({
@@ -426,6 +454,8 @@ export async function checkUserQuota(userId: string): Promise<{
   quota: number;
   resetAt: string;
 }> {
+  const service = createServiceClient();
+
   const { data, error } = await service.rpc("get_user_download_quota", {
     p_user_id: userId,
   });
@@ -436,11 +466,17 @@ export async function checkUserQuota(userId: string): Promise<{
     return { allowed: false, used: 0, quota: 0, resetAt: new Date().toISOString() };
   }
 
+  const quota = Array.isArray(data) ? data[0] : data;
+
+  if (!quota) {
+    return { allowed: false, used: 0, quota: 0, resetAt: new Date().toISOString() };
+  }
+
   return {
-    allowed: data.used < data.quota,
-    used: data.used,
-    quota: data.quota,
-    resetAt: data.reset_at,
+    allowed: quota.used < quota.quota,
+    used: quota.used,
+    quota: quota.quota,
+    resetAt: quota.reset_at,
   };
 }
 
@@ -448,6 +484,8 @@ export async function checkUserQuota(userId: string): Promise<{
  * Increment download counter for a user.
  */
 export async function incrementDownloadCount(userId: string): Promise<void> {
+  const service = createServiceClient();
+
   const { error } = await service.rpc("increment_download_count", {
     p_user_id: userId,
   });

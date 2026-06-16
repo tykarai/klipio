@@ -9,7 +9,7 @@
  *   - Frontend preview before download
  *   - Third-party integrations
  *
- * Request:  { url: string, platform: string, includeSubtitles?: boolean }
+ * Request:  { url: string, platform?: string, includeSubtitles?: boolean }
  * Response: { success: true, metadata: {...}, formats: [...], directUrl: string }
  */
 
@@ -21,20 +21,12 @@ import {
   SUPPORTED_PLATFORMS,
   PLATFORM_PATTERNS,
   ERROR_CODES,
+  detectPlatform,
   getErrorMessage,
 } from "@/lib/config";
 import type { SupportedPlatform } from "@/lib/config";
-import { getBestProxyArg } from "@/lib/proxy";
 import { checkRateLimit, recordRequest, getClientIP } from "../download/rate-limit";
-
-// Dynamic import for ytdlp to avoid bundling ssh2 native binary
-let ytdlpModule: any = null;
-async function getYtdlpModule() {
-  if (!ytdlpModule) {
-    ytdlpModule = await import("@/lib/ytdlp");
-  }
-  return ytdlpModule;
-}
+import { extractMetadata, YtdlpError } from "@/lib/ytdlp";
 
 const logger = createLogger("api/extract");
 
@@ -60,7 +52,7 @@ const extractRequestSchema = z.object({
     ),
   platform: z.enum(SUPPORTED_PLATFORMS, {
     errorMap: () => ({ message: "Unsupported platform" }),
-  }),
+  }).optional(),
   quality: z.enum(["hd", "sd", "low", "audio"] as const).default("hd"),
   includeSubtitles: z.boolean().default(false),
   includeChapters: z.boolean().default(false),
@@ -69,8 +61,6 @@ const extractRequestSchema = z.object({
   endTime: z.number().min(0).optional(),
   locale: z.string().default("en"),
 });
-
-type ExtractRequest = z.infer<typeof extractRequestSchema>;
 
 // ═══════════════════════════════════════════════════════════════
 //  RESPONSE TYPES
@@ -139,7 +129,8 @@ interface ExtractResponse {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = crypto.randomUUID();
-  const startTime = Date.now();
+  const requestStartedAt = Date.now();
+  let locale = "en";
 
   try {
     // ── Parse & Validate Body ────────────────────────────────
@@ -176,15 +167,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const {
       url,
-      platform,
+      platform: requestedPlatform,
       quality,
       includeSubtitles,
       includeChapters,
       extractAudio,
-      startTime,
+      startTime: trimStart,
       endTime,
-      locale,
+      locale: requestedLocale,
     } = parseResult.data;
+    locale = requestedLocale;
+    const platform = requestedPlatform ?? detectPlatform(url);
+
+    if (!platform) {
+      return jsonResponse(
+        {
+          success: false,
+          error: {
+            code: ERROR_CODES.UNSUPPORTED_PLATFORM.code,
+            message: getErrorMessage("UNSUPPORTED_PLATFORM", locale),
+          },
+        },
+        400
+      );
+    }
 
     // ── Validate URL matches platform ─────────────────────────
     const pattern = PLATFORM_PATTERNS[platform];
@@ -258,7 +264,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const extractResult = await extractMetadata(url, platform as SupportedPlatform, {
       quality,
       extractAudio,
-      startTime,
+      startTime: trimStart,
       endTime,
       extractSubtitles: includeSubtitles,
       extractChapters: includeChapters,
@@ -266,7 +272,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     await recordRequest(ipAddress, userId);
 
-    const elapsed = Date.now() - startTime;
+    const elapsed = Date.now() - requestStartedAt;
 
     // ── Build Headers for Direct URL ──────────────────────────
     const headers: Record<string, string> = {};
@@ -352,7 +358,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (error) {
-    const elapsed = Date.now() - startTime;
+    const elapsed = Date.now() - requestStartedAt;
 
     if (error instanceof YtdlpError) {
       logger.warn(`Extraction failed`, {
@@ -459,6 +465,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 //  HELPERS
 // ═══════════════════════════════════════════════════════════════
 
-function jsonResponse(body: ExtractResponse, status: number): NextResponse {
+function jsonResponse(body: ExtractResponse, status = 200): NextResponse {
   return NextResponse.json(body, { status });
 }

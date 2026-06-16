@@ -21,8 +21,6 @@ const memoryCache = new Map<
   { count: number; windowStart: number }
 >();
 
-const CACHE_TTL_MS = 60000; // 1 minute cache
-
 // ═══════════════════════════════════════════════════════════════
 //  CLIENT IP EXTRACTION
 // ═══════════════════════════════════════════════════════════════
@@ -47,7 +45,7 @@ export function getClientIP(request: NextRequest): string {
   if (forwarded) return forwarded.split(",")[0].trim();
 
   // Direct connection
-  return request.ip || "unknown";
+  return (request as unknown as { ip?: string }).ip || "unknown";
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -157,10 +155,15 @@ export async function recordRequest(
 
   // Update memory cache
   const cached = memoryCache.get(key);
+  const nextCount =
+    cached && cached.windowStart === windowStart.getTime()
+      ? cached.count + 1
+      : 1;
+
   if (cached && cached.windowStart === windowStart.getTime()) {
-    cached.count++;
+    cached.count = nextCount;
   } else {
-    memoryCache.set(key, { count: 1, windowStart: windowStart.getTime() });
+    memoryCache.set(key, { count: nextCount, windowStart: windowStart.getTime() });
   }
 
   // Upsert to database
@@ -170,7 +173,7 @@ export async function recordRequest(
     {
       ip_address: userId ? null : ipAddress,
       user_id: userId,
-      requests_count: (cached?.count || 0) + 1,
+      requests_count: nextCount,
       window_start: windowStart.toISOString(),
       updated_at: new Date().toISOString(),
     },

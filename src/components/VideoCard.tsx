@@ -11,7 +11,7 @@ import {
   DropdownItem,
   DropdownSeparator,
 } from "@/components/ui/Dropdown";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Play,
   Pause,

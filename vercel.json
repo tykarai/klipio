@@ -38,6 +38,25 @@
     }
   ],
 
+  "crons": [
+    {
+      "path": "/api/worker/process",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/recover-jobs",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-expired",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-r2",
+      "schedule": "30 * * * *"
+    }
+  ],
+
   "env": {
     "NEXT_PUBLIC_APP_URL": "https://klipio.io"
   }

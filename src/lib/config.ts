@@ -8,6 +8,16 @@
 
 import { z } from "zod";
 
+const optionalString = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().optional()
+);
+
+const optionalUrl = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().url().optional()
+);
+
 // ─── Environment Variable Schema ──────────────────────────────
 
 const envSchema = z.object({
@@ -18,26 +28,26 @@ const envSchema = z.object({
 
   // ── Cloudflare R2 ──
   R2_ACCOUNT_ID: z.string().min(1, "R2 account ID required"),
-  R2_ACCESS_KEY_ID: z.string().min(1, "R2 access key ID required"),
-  R2_SECRET_ACCESS_KEY: z.string().min(1, "R2 secret access key required"),
+  R2_ACCESS_KEY_ID: optionalString,
+  R2_SECRET_ACCESS_KEY: optionalString,
   R2_BUCKET_NAME: z.string().min(1, "R2 bucket name required"),
-  R2_PUBLIC_URL: z.string().url("R2 public URL required").optional(),
+  R2_PUBLIC_URL: optionalUrl,
 
   // ── Cloudways VPS / yt-dlp SSH ──
   VPS_HOST: z.string().min(1, "VPS host required"),
   VPS_PORT: z.string().default("22"),
   VPS_USER: z.string().min(1, "VPS user required"),
   VPS_PRIVATE_KEY: z.string().min(1, "VPS private key required"),
-  VPS_SSH_PASSPHRASE: z.string().optional(),
+  VPS_SSH_PASSPHRASE: optionalString,
   YTDLP_PATH: z.string().default("/usr/local/bin/yt-dlp"),
   FFPROBE_PATH: z.string().default("/usr/bin/ffprobe"),
   FFMPEG_PATH: z.string().default("/usr/bin/ffmpeg"),
 
   // ── Proxy Pool ──
-  PROXY_PRIMARY_URL: z.string().url().optional(),
-  PROXY_BACKUP_URLS: z.string().optional(), // comma-separated
-  PROXY_USERNAME: z.string().optional(),
-  PROXY_PASSWORD: z.string().optional(),
+  PROXY_PRIMARY_URL: optionalUrl,
+  PROXY_BACKUP_URLS: optionalString, // comma-separated
+  PROXY_USERNAME: optionalString,
+  PROXY_PASSWORD: optionalString,
 
   // ── Rate Limiting ──
   RATE_LIMIT_ANONYMOUS: z.string().default("10"),
@@ -48,6 +58,11 @@ const envSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url().default("https://klipio.io"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 
+  // ── Worker / Cron Security ──
+  WORKER_SECRET: optionalString,
+  CRON_SECRET: optionalString,
+  MAX_WORKER_JOBS_PER_INVOCATION: z.string().default("1"),
+
   // ── Feature Flags ──
   ENABLE_ANALYSIS: z.enum(["true", "false"]).default("false"),
   ENABLE_TIKTOK: z.enum(["true", "false"]).default("true"),
@@ -57,13 +72,13 @@ const envSchema = z.object({
   ENABLE_TWITTER: z.enum(["true", "false"]).default("true"),
 
   // ── AI Pipeline (future) ──
-  OPENAI_API_KEY: z.string().optional(),
-  GEMINI_API_KEY: z.string().optional(),
-  WHISPER_API_URL: z.string().url().optional(),
+  OPENAI_API_KEY: optionalString,
+  GEMINI_API_KEY: optionalString,
+  WHISPER_API_URL: optionalUrl,
 
   // ── Observability ──
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
-  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_DSN: optionalUrl,
 });
 
 // ─── Parse & Export ───────────────────────────────────────────
@@ -82,6 +97,13 @@ function loadConfig() {
   }
 
   return parsed.data;
+}
+
+export function normalizePrivateKey(privateKey: string): string {
+  return privateKey
+    .replace(/^"|"$/g, "")
+    .replace(/\\n/g, "\n")
+    .trim();
 }
 
 // ─── Lazy-loaded Config ───────────────────────────────────────
@@ -103,6 +125,7 @@ function buildConfig() {
       ytdlp: { path: "/usr/local/bin/yt-dlp", ffprobePath: "/usr/bin/ffprobe", ffmpegPath: "/usr/bin/ffmpeg", globalArgs: [] },
       proxy: { primaryUrl: undefined, backupUrls: [], username: undefined, password: undefined },
       rateLimit: { anonymousPerHour: 10, registeredPerHour: 100, windowMs: 3600000 },
+      worker: { secret: undefined, cronSecret: undefined, maxJobsPerInvocation: 1 },
       features: { enableAnalysis: false, enableTikTok: true, enableInstagram: true, enableFacebook: true, enableYouTube: true, enableTwitter: true },
       ai: { openaiKey: undefined, geminiKey: undefined, whisperUrl: undefined },
       logLevel: "info",
@@ -141,8 +164,8 @@ function buildConfig() {
     // R2
     r2: {
       accountId: raw.R2_ACCOUNT_ID,
-      accessKeyId: raw.R2_ACCESS_KEY_ID,
-      secretAccessKey: raw.R2_SECRET_ACCESS_KEY,
+      accessKeyId: raw.R2_ACCESS_KEY_ID || "",
+      secretAccessKey: raw.R2_SECRET_ACCESS_KEY || "",
       bucketName: raw.R2_BUCKET_NAME,
       publicUrl: raw.R2_PUBLIC_URL,
       endpoint: `https://${raw.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -155,7 +178,7 @@ function buildConfig() {
       host: raw.VPS_HOST,
       port: parseInt(raw.VPS_PORT, 10),
       user: raw.VPS_USER,
-      privateKey: raw.VPS_PRIVATE_KEY,
+      privateKey: normalizePrivateKey(raw.VPS_PRIVATE_KEY),
       passphrase: raw.VPS_SSH_PASSPHRASE,
     },
 
@@ -187,6 +210,13 @@ function buildConfig() {
       anonymousPerHour: parseInt(raw.RATE_LIMIT_ANONYMOUS, 10),
       registeredPerHour: parseInt(raw.RATE_LIMIT_REGISTERED, 10),
       windowMs: parseInt(raw.RATE_LIMIT_WINDOW_MS, 10),
+    },
+
+    // Worker / Cron
+    worker: {
+      secret: raw.WORKER_SECRET,
+      cronSecret: raw.CRON_SECRET,
+      maxJobsPerInvocation: Math.max(1, parseInt(raw.MAX_WORKER_JOBS_PER_INVOCATION, 10) || 1),
     },
 
     // Feature Flags
@@ -252,6 +282,16 @@ export const PLATFORM_PATTERNS: Record<SupportedPlatform, RegExp> = {
     /https?:\/\/(?:www\.|mobile\.)?(?:twitter\.com|x\.com)\/.+\/status\/\d+/i,
 };
 
+export function detectPlatform(url: string): SupportedPlatform | null {
+  for (const platform of SUPPORTED_PLATFORMS) {
+    if (PLATFORM_PATTERNS[platform].test(url)) {
+      return platform;
+    }
+  }
+
+  return null;
+}
+
 // ─── Quality Presets ──────────────────────────────────────────
 
 export const QUALITY_PRESETS = {
@@ -268,7 +308,7 @@ export type QualityPreset = keyof typeof QUALITY_PRESETS;
 export const JOB_TYPES = ["extract", "download", "analyze"] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 
-export const JOB_STATUSES = [
+export const DOWNLOAD_STATUSES = [
   "queued",
   "extracting",
   "downloading",
@@ -278,7 +318,17 @@ export const JOB_STATUSES = [
   "expired",
 ] as const;
 
-export type JobStatus = (typeof JOB_STATUSES)[number];
+export type DownloadStatus = (typeof DOWNLOAD_STATUSES)[number];
+
+export const QUEUE_JOB_STATUSES = [
+  "queued",
+  "processing",
+  "completed",
+  "failed",
+  "dead_letter",
+] as const;
+
+export type QueueJobStatus = (typeof QUEUE_JOB_STATUSES)[number];
 
 // ─── Error Codes ──────────────────────────────────────────────
 
@@ -426,9 +476,9 @@ export const DOWNLOAD_EXPIRY_HOURS = 24;
 
 export function createLogger(module: string) {
   const levels = { trace: 0, debug: 1, info: 2, warn: 3, error: 4, fatal: 5 };
-  const currentLevel = levels[config.logLevel] ?? 2;
 
   function shouldLog(level: keyof typeof levels) {
+    const currentLevel = levels[config.logLevel] ?? 2;
     return levels[level] >= currentLevel;
   }
 

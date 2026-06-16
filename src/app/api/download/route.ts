@@ -3,7 +3,7 @@
  *
  * Main download endpoint for klipio.io.
  *
- * Request:  { url: string, platform: string, quality?: "hd" | "sd" | "low" | "audio" }
+ * Request:  { url: string, platform?: string, quality?: "hd" | "sd" | "low" | "audio" }
  * Response: { success: true, jobId: string, status: string, estimatedSeconds: number }
  *
  * Flow:
@@ -16,14 +16,13 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { cookies } from "next/headers";
 import {
   config,
   createLogger,
   PLATFORM_PATTERNS,
   SUPPORTED_PLATFORMS,
-  QUALITY_PRESETS,
   ERROR_CODES,
+  detectPlatform,
   getErrorMessage,
 } from "@/lib/config";
 import {
@@ -58,7 +57,7 @@ const downloadRequestSchema = z.object({
     ),
   platform: z.enum(SUPPORTED_PLATFORMS, {
     errorMap: () => ({ message: "Unsupported platform" }),
-  }),
+  }).optional(),
   quality: z
     .enum(["hd", "sd", "low", "audio"] as const)
     .default("hd"),
@@ -66,30 +65,6 @@ const downloadRequestSchema = z.object({
   endTime: z.number().min(0).optional(),   // Optional trim end (seconds)
   locale: z.string().default("en"),        // For localized error messages
 });
-
-type DownloadRequest = z.infer<typeof downloadRequestSchema>;
-
-// ═══════════════════════════════════════════════════════════════
-//  RESPONSE TYPES
-// ═══════════════════════════════════════════════════════════════
-
-interface DownloadResponse {
-  success: boolean;
-  jobId?: string;
-  downloadId?: string;
-  status?: string;
-  estimatedSeconds?: number;
-  error?: {
-    code: string;
-    message: string;
-    details?: string;
-  };
-  meta?: {
-    platform: string;
-    quality: string;
-    expiresAt: string;
-  };
-}
 
 // ═══════════════════════════════════════════════════════════════
 //  MAIN HANDLER
@@ -133,7 +108,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { url, platform, quality, startTime: start, endTime: end, locale } = parseResult.data;
+    const { url, platform: requestedPlatform, quality, startTime: start, endTime: end, locale } = parseResult.data;
+    const platform = requestedPlatform ?? detectPlatform(url);
+
+    if (!platform) {
+      return jsonResponse(
+        {
+          success: false,
+          error: {
+            code: ERROR_CODES.UNSUPPORTED_PLATFORM.code,
+            message: getErrorMessage("UNSUPPORTED_PLATFORM", locale),
+          },
+        },
+        400
+      );
+    }
 
     // ── Validate URL matches platform ─────────────────────────
     const pattern = PLATFORM_PATTERNS[platform];
@@ -234,6 +223,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       title: null,
       thumbnail_url: null,
       author: null,
+      description: null,
       error_code: null,
       error_message: null,
       retry_count: 0,
@@ -253,6 +243,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       quality,
       userId,
       ipAddress,
+      startTime: start,
+      endTime: end,
     });
 
     // ── Record Rate Limit Usage ────────────────────────────────
@@ -374,7 +366,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 function jsonResponse(
   body: Record<string, unknown>,
-  status: number,
+  status = 200,
   extraHeaders?: Record<string, string>
 ): NextResponse {
   const headers: Record<string, string> = {

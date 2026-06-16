@@ -18,6 +18,8 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { nanoid } from "nanoid";
 import { config, createLogger } from "./config";
+import { createReadStream } from "fs";
+import { stat } from "fs/promises";
 
 const logger = createLogger("r2");
 
@@ -25,17 +27,29 @@ const logger = createLogger("r2");
 //  S3 CLIENT
 // ═══════════════════════════════════════════════════════════════
 
-const s3Client = new S3Client({
-  region: config.r2.region,
-  endpoint: config.r2.endpoint,
-  credentials: {
-    accessKeyId: config.r2.accessKeyId,
-    secretAccessKey: config.r2.secretAccessKey,
-  },
-  // R2 doesn't support all S3 features — disable checksums
-  requestChecksumCalculation: "WHEN_REQUIRED",
-  responseChecksumValidation: "WHEN_REQUIRED",
-});
+let s3Client: S3Client | null = null;
+
+function getS3Client(): S3Client {
+  if (!config.r2.accessKeyId || !config.r2.secretAccessKey) {
+    throw new Error("R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY are required for storage operations");
+  }
+
+  if (!s3Client) {
+    s3Client = new S3Client({
+      region: config.r2.region,
+      endpoint: config.r2.endpoint,
+      credentials: {
+        accessKeyId: config.r2.accessKeyId,
+        secretAccessKey: config.r2.secretAccessKey,
+      },
+      // R2 doesn't support all S3 features — disable checksums
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
+    });
+  }
+
+  return s3Client;
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  TYPES
@@ -160,7 +174,7 @@ export async function uploadToR2(
   });
 
   try {
-    const result = await s3Client.send(command);
+    const result = await getS3Client().send(command);
 
     logger.info("Uploaded to R2", {
       key,
@@ -192,6 +206,70 @@ export async function uploadToR2(
 }
 
 /**
+ * Upload a local file to R2 using a stream. This avoids buffering large videos
+ * in memory inside the worker runtime.
+ */
+export async function uploadFileToR2(
+  filePath: string,
+  platform: string,
+  options: {
+    mimeType?: string;
+    fileName?: string;
+    metadata?: Record<string, string>;
+  } = {}
+): Promise<R2UploadResult> {
+  const fileStats = await stat(filePath);
+  const mimeType = options.mimeType || "video/mp4";
+  const key = generateDownloadKey(platform, mimeType, options.fileName);
+  const expiresAt = new Date(Date.now() + config.r2.expirySeconds * 1000);
+
+  const command = new PutObjectCommand({
+    Bucket: config.r2.bucketName,
+    Key: key,
+    Body: createReadStream(filePath),
+    ContentLength: fileStats.size,
+    ContentType: mimeType,
+    Metadata: {
+      platform,
+      uploadedAt: new Date().toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      ...(options.fileName ? { originalName: options.fileName } : {}),
+      ...options.metadata,
+    },
+    Expires: expiresAt,
+  });
+
+  try {
+    const result = await getS3Client().send(command);
+
+    logger.info("Uploaded file to R2", {
+      key,
+      bucket: config.r2.bucketName,
+      size: fileStats.size,
+      mimeType,
+    });
+
+    return {
+      key,
+      bucket: config.r2.bucketName,
+      etag: result.ETag,
+      size: fileStats.size,
+      contentType: mimeType,
+      publicUrl: config.r2.publicUrl
+        ? `${config.r2.publicUrl}/${key}`
+        : null,
+      expiresAt,
+    };
+  } catch (error) {
+    logger.error("R2 file upload failed", {
+      key,
+      error: (error as Error).message,
+    });
+    throw new Error(`Failed to upload file to R2: ${(error as Error).message}`);
+  }
+}
+
+/**
  * Upload a JSON metadata object to R2 alongside the video file.
  */
 export async function uploadMetadata(
@@ -212,7 +290,7 @@ export async function uploadMetadata(
     },
   });
 
-  await s3Client.send(command);
+  await getS3Client().send(command);
   logger.debug("Metadata uploaded", { key });
 
   return key;
@@ -238,7 +316,7 @@ export async function uploadThumbnail(
     },
   });
 
-  await s3Client.send(command);
+  await getS3Client().send(command);
   logger.debug("Thumbnail uploaded", { key });
 
   return key;
@@ -289,7 +367,7 @@ export async function getSignedDownloadUrl(
   });
 
   try {
-    const signedUrl = await getSignedUrl(s3Client, command, {
+    const signedUrl = await getSignedUrl(getS3Client(), command, {
       expiresIn: expirySeconds,
     });
 
@@ -330,7 +408,7 @@ export async function getInlineUrl(key: string): Promise<string> {
     ResponseContentDisposition: "inline",
   });
 
-  return getSignedUrl(s3Client, command, { expiresIn: 3600 });
+  return getSignedUrl(getS3Client(), command, { expiresIn: 3600 });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -347,7 +425,7 @@ export async function getObjectMetadata(key: string): Promise<R2ObjectMetadata> 
   });
 
   try {
-    const result = await s3Client.send(command);
+    const result = await getS3Client().send(command);
 
     return {
       key,
@@ -376,7 +454,7 @@ export async function deleteFromR2(key: string): Promise<void> {
     Key: key,
   });
 
-  await s3Client.send(command);
+  await getS3Client().send(command);
   logger.info("Deleted from R2", { key });
 }
 
@@ -418,7 +496,7 @@ export async function listExpiredObjects(
       MaxKeys: 1000,
     });
 
-    const result = await s3Client.send(command);
+    const result = await getS3Client().send(command);
 
     for (const obj of result.Contents || []) {
       if (obj.LastModified && obj.LastModified < beforeDate) {
@@ -493,7 +571,7 @@ export async function checkR2Health(): Promise<{
       MaxKeys: 1,
     });
 
-    await s3Client.send(command);
+    await getS3Client().send(command);
 
     return {
       ok: true,

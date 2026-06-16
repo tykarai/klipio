@@ -214,7 +214,7 @@ export function UrlInput({
         </AnimatePresence>
 
         {/* Input container */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           {/* Left icon */}
           <div className="shrink-0 pl-2 sm:pl-3">
             {state === "loading" ? (
@@ -249,11 +249,11 @@ export function UrlInput({
               isDragging
                 ? "Drop your link here..."
                 : isHero
-                ? "Paste any video link from TikTok, Instagram, YouTube..."
+                ? "Paste a TikTok, Reel, Short, YouTube, or Facebook link..."
                 : "Paste video URL..."
             }
             className={cn(
-              "flex-1 bg-transparent text-klipio-text placeholder:text-klipio-muted outline-none",
+              "min-w-0 flex-1 bg-transparent text-klipio-text placeholder:text-klipio-muted outline-none",
               isHero
                 ? "text-base sm:text-lg py-3 sm:py-4"
                 : "text-sm py-2.5 sm:py-3"
@@ -350,7 +350,7 @@ export function UrlInput({
           onClick={() => handleSubmit("download")}
           className="flex-1"
         >
-          {state === "loading" ? "Processing..." : "Download Video"}
+          {state === "loading" ? "Processing..." : "Get Video"}
         </Button>
         <Button
           variant="secondary"
@@ -361,7 +361,7 @@ export function UrlInput({
           disabled={state === "loading"}
           className="flex-1"
         >
-          Analyze with AI
+          Understand with AI
         </Button>
       </motion.div>
     </div>

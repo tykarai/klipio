@@ -33,7 +33,6 @@ const KNOWN_BRANDS: Record<string, { category: string; aliases: string[] }> = {
   ulta: { category: "beauty", aliases: [] },
   starbucks: { category: "beverage", aliases: [] },
   mcdonalds: { category: "food", aliases: ["mcdonald's", "big mac"] },
-  nike: { category: "fashion", aliases: [] },
   gucci: { category: "fashion", aliases: [] },
   louisvuitton: { category: "fashion", aliases: ["louis vuitton", "lv"] },
   chanel: { category: "fashion", aliases: [] },

@@ -4,7 +4,7 @@
  * punctuation, paragraphs, and multi-language support.
  */
 
-import { createClient, ListenLiveClient, LiveTranscriptionEvents } from "@deepgram/sdk";
+import { DeepgramClient as DeepgramSdkClient } from "@deepgram/sdk";
 import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import {
@@ -53,12 +53,12 @@ export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 export class DeepgramClient {
   private config: DeepgramConfig;
-  private sdk: ReturnType<typeof createClient>;
+  private sdk: any;
   private totalDurationMinutes: number = 0;
 
   constructor(config: Partial<DeepgramConfig> & { apiKey: string }) {
     this.config = { ...DEFAULT_CONFIG, ...config } as DeepgramConfig;
-    this.sdk = createClient(this.config.apiKey);
+    this.sdk = new DeepgramSdkClient({ apiKey: this.config.apiKey });
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────────
@@ -80,25 +80,12 @@ export class DeepgramClient {
     const estimatedDuration = fileStats.size / (16000 * 2); // rough estimate for 16kHz mono WAV
     this.totalDurationMinutes += estimatedDuration / 60;
 
-    const source = { stream: createReadStream(audioFilePath), mimetype: this.detectMimetype(audioFilePath) };
+    const source = createReadStream(audioFilePath);
 
     const options = this.buildOptions();
 
     try {
-      const { result, error } = await this.sdk.listen.prerecorded.transcribeFile(
-        source.stream,
-        options
-      );
-
-      if (error) {
-        throw new PipelineError({
-          code: "TRANSCRIPTION_FAILED",
-          message: `Deepgram error: ${error.message}`,
-          stage: "transcribing",
-          recoverable: this.isRecoverable(error),
-          cause: error,
-        });
-      }
+      const result = await this.sdk.listen.v1.media.transcribeFile(source, options);
 
       return this.parseResult(result);
     } catch (err) {
@@ -124,20 +111,7 @@ export class DeepgramClient {
     const options = this.buildOptions();
 
     try {
-      const { result, error } = await this.sdk.listen.prerecorded.transcribeFile(
-        buffer,
-        options
-      );
-
-      if (error) {
-        throw new PipelineError({
-          code: "TRANSCRIPTION_FAILED",
-          message: `Deepgram error: ${error.message}`,
-          stage: "transcribing",
-          recoverable: this.isRecoverable(error),
-          cause: error,
-        });
-      }
+      const result = await this.sdk.listen.v1.media.transcribeFile(buffer, options);
 
       return this.parseResult(result);
     } catch (err) {
@@ -160,20 +134,10 @@ export class DeepgramClient {
     const options = this.buildOptions();
 
     try {
-      const { result, error } = await this.sdk.listen.prerecorded.transcribeUrl(
-        { url: audioUrl },
-        options
-      );
-
-      if (error) {
-        throw new PipelineError({
-          code: "TRANSCRIPTION_FAILED",
-          message: `Deepgram URL transcription error: ${error.message}`,
-          stage: "transcribing",
-          recoverable: this.isRecoverable(error),
-          cause: error,
-        });
-      }
+      const result = await this.sdk.listen.v1.media.transcribeUrl({
+        url: audioUrl,
+        ...options,
+      });
 
       return this.parseResult(result);
     } catch (err) {
@@ -195,19 +159,26 @@ export class DeepgramClient {
   async createLiveStream(
     onTranscript: (result: Partial<TranscriptResult>) => void,
     sampleRate = 16000
-  ): Promise<ListenLiveClient> {
+  ): Promise<unknown> {
     const options = this.buildOptions();
     options.sample_rate = sampleRate;
     options.encoding = "linear16";
 
-    const connection = this.sdk.listen.live(options);
+    const connection =
+      typeof this.sdk.listen.v1.createConnection === "function"
+        ? await this.sdk.listen.v1.createConnection(options)
+        : await this.sdk.listen.v1.connect(options);
 
-    connection.on(LiveTranscriptionEvents.Transcript, (data) => {
+    connection.on("message", (message: unknown) => {
+      const data =
+        typeof message === "string"
+          ? this.safeParseLiveMessage(message)
+          : message;
       const partial = this.parseLiveResult(data);
       onTranscript(partial);
     });
 
-    connection.on(LiveTranscriptionEvents.Error, (err) => {
+    connection.on("error", (err: unknown) => {
       console.error("[Deepgram Live] Error:", err);
     });
 
@@ -310,6 +281,14 @@ export class DeepgramClient {
         },
       ],
     };
+  }
+
+  private safeParseLiveMessage(message: string): unknown {
+    try {
+      return JSON.parse(message);
+    } catch {
+      return {};
+    }
   }
 
   private extractSegments(utterances: any[], alternatives: any): TranscriptSegment[] {

@@ -39,14 +39,14 @@ http://YOUR_API_KEY@p.webshare.io:80/
 
 Example:
 ```
-http://wbn74sbx91sbkok2jka2vep6d02lswl2sc4zis1n@p.webshare.io:80/
+http://YOUR_API_KEY@p.webshare.io:80/
 ```
 
 ### How to Verify Your Proxy Works
 
 Run this on your local terminal:
 ```bash
-curl -x "http://wbn74sbx91sbkok2jka2vep6d02lswl2sc4zis1n@p.webshare.io:80/" https://httpbin.org/ip
+curl -x "http://YOUR_API_KEY@p.webshare.io:80/" https://httpbin.org/ip
 ```
 
 If you see a different IP than your own → ✅ Proxy is working.

@@ -241,7 +241,7 @@ ALTER TABLE dead_letter ENABLE ROW LEVEL SECURITY;
 
 -- Downloads: users can read their own; service role can do everything
 CREATE POLICY downloads_select_own ON downloads
-    FOR SELECT USING (user_id = auth.uid() OR auth.uid() IS NULL);
+    FOR SELECT USING (user_id = auth.uid());
 
 CREATE POLICY downloads_insert_own ON downloads
     FOR INSERT WITH CHECK (user_id = auth.uid() OR user_id IS NULL);
@@ -257,7 +257,7 @@ CREATE POLICY analyses_select_own ON analyses
     FOR SELECT USING (
         EXISTS (
             SELECT 1 FROM downloads WHERE downloads.id = analyses.download_id
-            AND (downloads.user_id = auth.uid() OR downloads.user_id IS NULL)
+            AND downloads.user_id = auth.uid()
         )
     );
 

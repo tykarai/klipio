@@ -310,36 +310,12 @@ export async function withProxyFallback<T>(
 ): Promise<T> {
   const errors: Array<{ proxy: string | null; error: string }> = [];
 
-  // Try each healthy proxy in order
-  const triedProxies = new Set<string>();
+  const candidates = proxyPool
+    .filter((proxy) => isProxyHealthy(proxy))
+    .sort((a, b) => b.weight - a.weight);
 
-  // First pass: weighted selection
-  for (let attempt = 0; attempt < proxyPool.length + (lastResortDirect ? 1 : 0); attempt++) {
-    const proxy = getNextProxy();
-
-    if (!proxy) {
-      // No more proxies
-      if (lastResortDirect && !triedProxies.has("direct")) {
-        triedProxies.add("direct");
-        logger.warn("Attempting direct connection (no proxy)");
-        try {
-          const result = await fn(null);
-          return result;
-        } catch (error) {
-          const msg = (error as Error).message;
-          errors.push({ proxy: "direct", error: msg });
-          throw new AggregateProxyError(
-            "All proxy attempts failed",
-            errors
-          );
-        }
-      }
-      break;
-    }
-
-    if (triedProxies.has(proxy.id)) continue;
-    triedProxies.add(proxy.id);
-
+  for (const proxy of candidates) {
+    proxy.lastUsed = Date.now();
     const proxyArg = getYtDlpProxyArg(proxy);
     const start = Date.now();
 
@@ -368,6 +344,15 @@ export async function withProxyFallback<T>(
       logger.warn(`Proxy ${proxy.id} failed (${latency}ms): ${msg}`);
 
       // Continue to next proxy
+    }
+  }
+
+  if (lastResortDirect && directEnabled) {
+    logger.warn("Attempting direct connection (no proxy)");
+    try {
+      return await fn(null);
+    } catch (error) {
+      errors.push({ proxy: "direct", error: (error as Error).message });
     }
   }
 

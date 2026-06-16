@@ -10,14 +10,13 @@
  * Provides comprehensive error handling for private/blocked videos
  */
 
-import { config, createLogger, RETRY_CONFIG, QUALITY_PRESETS } from "./config";
+import { config, createLogger, QUALITY_PRESETS } from "./config";
 import type { QualityPreset, SupportedPlatform } from "./config";
 import {
   withProxyFallback,
-  getBestProxyArg,
-  markProxyFailed,
-  markProxySucceeded,
 } from "./proxy";
+import { mkdir } from "fs/promises";
+import { dirname } from "path";
 
 const logger = createLogger("ytdlp");
 
@@ -239,6 +238,52 @@ async function execOnVPS(
   }
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function buildShellCommand(args: string[]): string {
+  return args.map(shellQuote).join(" ");
+}
+
+function assertSafeRemotePath(remotePath: string): void {
+  if (!remotePath.startsWith("/tmp/klipio/")) {
+    throw new Error(`Refusing to operate outside /tmp/klipio: ${remotePath}`);
+  }
+}
+
+export async function ensureRemoteDir(remoteDir: string): Promise<void> {
+  assertSafeRemotePath(remoteDir.endsWith("/") ? remoteDir : `${remoteDir}/`);
+  const result = await execOnVPS(`mkdir -p ${shellQuote(remoteDir)}`, 30000);
+  if (result.code !== 0) {
+    throw new YtdlpError({
+      code: "EXTRACTION_FAILED",
+      message: `Failed to create remote directory: ${result.stderr || result.stdout}`,
+      platform: "unknown",
+    });
+  }
+}
+
+export async function fetchRemoteFile(
+  remotePath: string,
+  localPath: string
+): Promise<void> {
+  assertSafeRemotePath(remotePath);
+  await mkdir(dirname(localPath), { recursive: true });
+  const ssh = await getSSHConnection();
+  await ssh.getFile(localPath, remotePath);
+}
+
+export async function removeRemotePath(remotePath: string): Promise<void> {
+  assertSafeRemotePath(remotePath);
+  await execOnVPS(`rm -rf ${shellQuote(remotePath)}`, 30000).catch((error) => {
+    logger.warn("Remote cleanup failed", {
+      remotePath,
+      error: (error as Error).message,
+    });
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  YT-DLP COMMAND BUILDERS
 // ═══════════════════════════════════════════════════════════════
@@ -291,11 +336,8 @@ function buildYtDlpArgs(
   args.push("--dump-json");
   args.push("--no-download");
 
-  // Cookies — if we have a cookies file for the platform
-  args.push("--cookies-from-browser", "none");
-
   // Add the URL last
-  args.push("'" + url.replace(/'/g, "'\\''") + "'");
+  args.push(url);
 
   return args;
 }
@@ -331,7 +373,7 @@ function buildYtDlpDownloadArgs(
   }
 
   args.push("-o", outputPath);
-  args.push("'" + url.replace(/'/g, "'\\''") + "'");
+  args.push(url);
 
   return args;
 }
@@ -515,8 +557,8 @@ function selectBestFormat(
   const preset = QUALITY_PRESETS[quality];
   candidates.sort((a, b) => {
     // Prefer formats matching target quality
-    const aMatch = a.height && a.height <= preset.maxHeight ? 1 : 0;
-    const bMatch = b.height && b.height <= preset.maxHeight ? 1 : 0;
+    const aMatch = a.height && a.height <= preset.height ? 1 : 0;
+    const bMatch = b.height && b.height <= preset.height ? 1 : 0;
     if (aMatch !== bMatch) return bMatch - aMatch;
 
     // Then by resolution (higher is better)
@@ -544,16 +586,14 @@ export async function extractMetadata(
   logger.info(`Extracting metadata`, { url: url.slice(0, 100), platform });
 
   try {
-    // Build command
-    const args = buildYtDlpArgs(url, options);
-    const command = args.join(" ");
-
-    // Execute on VPS
-    const result = await execOnVPS(command, 120000);
-
-    if (result.code !== 0) {
-      throw classifyYtDlpError(result.stderr, result.stdout, platform);
-    }
+    const result = await withProxyFallback(async (proxyArg) => {
+      const args = buildYtDlpArgs(url, { ...options, proxyArg });
+      const execResult = await execOnVPS(buildShellCommand(args), 120000);
+      if (execResult.code !== 0) {
+        throw classifyYtDlpError(execResult.stderr, execResult.stdout, platform);
+      }
+      return execResult;
+    });
 
     // Parse metadata
     const metadata = parseYtDlpJson(result.stdout);
@@ -613,23 +653,34 @@ export async function downloadVideo(
   const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.%(ext)s`;
   const outputPath = `${outputDir}/${fileName}`;
 
-  const args = buildYtDlpDownloadArgs(url, outputPath, options);
-  const command = args.join(" ");
+  await ensureRemoteDir(outputDir);
 
   logger.info(`Starting download`, { url: url.slice(0, 100), outputPath });
 
-  const result = await execOnVPS(command, 300000); // 5 min timeout
+  const result = await withProxyFallback(async (proxyArg) => {
+    const args = buildYtDlpDownloadArgs(url, outputPath, { ...options, proxyArg });
+    const execResult = await execOnVPS(buildShellCommand(args), 300000);
+    if (execResult.code !== 0) {
+      throw classifyYtDlpError(execResult.stderr, execResult.stdout, "unknown");
+    }
+    return execResult;
+  }); // 5 min timeout
 
-  if (result.code !== 0) {
-    throw classifyYtDlpError(result.stderr, result.stdout, "unknown");
-  }
+  // Parse output to find actual file path. yt-dlp may download separate
+  // streams and then merge into a final path.
+  const combinedOutput = `${result.stdout}\n${result.stderr}`;
+  const pathPatterns = [
+    /Merging formats into "([^"]+)"/,
+    /Destination:\s+(.+)$/m,
+    /\[download\]\s+(.+?)\s+has already been downloaded/,
+  ];
 
-  // Parse output to find actual file path
-  const outputLines = result.stdout.split("\n");
-  const destLine = outputLines.find((l) => l.includes("Destination:"));
-  if (destLine) {
-    const actualPath = destLine.split("Destination:")[1]?.trim();
-    if (actualPath) return actualPath;
+  for (const pattern of pathPatterns) {
+    const match = combinedOutput.match(pattern);
+    const actualPath = match?.[1]?.trim();
+    if (actualPath) {
+      return actualPath;
+    }
   }
 
   return outputPath.replace("%(ext)s", "mp4");

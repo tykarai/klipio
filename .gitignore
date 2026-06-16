@@ -1,8 +1,16 @@
 node_modules
 .next
+.env
+.env.*
+!.env.example
 .env.local
+.envrc
 *.log
 .DS_Store
+tsconfig.tsbuildinfo
+*.key
+*.pem
+*.p8
 klipio_do_key
 klipio_do_key.pub
 .vercel

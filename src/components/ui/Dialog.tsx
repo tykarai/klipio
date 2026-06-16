@@ -13,7 +13,7 @@ interface DialogProps {
   className?: string;
 }
 
-export function Dialog({
+function Dialog({
   open,
   onOpenChange,
   children,

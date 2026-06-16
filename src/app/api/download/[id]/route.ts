@@ -18,7 +18,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createLogger, config, ERROR_CODES, getErrorMessage } from "@/lib/config";
 import { getDownloadById, updateDownload } from "@/lib/supabase";
 import { getSignedDownloadUrl } from "@/lib/r2";
-import { getJob } from "@/lib/queue";
 
 const logger = createLogger("api/download/status");
 
@@ -146,8 +145,6 @@ export async function GET(
 
     switch (download.status) {
       case "queued": {
-        // Check if there's a job to report progress
-        const job = await findJobForDownload(downloadId);
         return jsonResponse({
           ...baseResponse,
           status: "queued",
@@ -317,7 +314,7 @@ export async function GET(
 // ═══════════════════════════════════════════════════════════════
 
 export async function DELETE(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id: downloadId } = await params;
@@ -402,7 +399,7 @@ export async function DELETE(
 //  HELPERS
 // ═══════════════════════════════════════════════════════════════
 
-function jsonResponse(body: StatusResponse, status: number): NextResponse {
+function jsonResponse(body: StatusResponse, status = 200): NextResponse {
   return NextResponse.json(body, { status });
 }
 
@@ -410,31 +407,6 @@ function isValidUUID(str: string): boolean {
   const uuidRegex =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   return uuidRegex.test(str);
-}
-
-/**
- * Find the queue job associated with a download record.
- */
-async function findJobForDownload(
-  downloadId: string
-): Promise<Record<string, unknown> | null> {
-  try {
-    const { createServiceClient } = await import("@/lib/supabase");
-    const service = createServiceClient();
-
-    const { data, error } = await service
-      .from("jobs")
-      .select("*")
-      .eq("payload->>downloadId", downloadId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (error) return null;
-    return data;
-  } catch {
-    return null;
-  }
 }
 
 /**

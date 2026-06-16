@@ -26,7 +26,27 @@ import {
 } from "lucide-react";
 
 // ─── Pricing Plans ───
-const plans = [
+type PlanFeature = {
+  text: string;
+  included: boolean;
+  highlight?: boolean;
+};
+
+type PricingPlan = {
+  id: string;
+  name: string;
+  icon: typeof Zap;
+  description: string;
+  monthlyPrice: number;
+  yearlyPrice: number;
+  popular: boolean;
+  badge?: string;
+  features: PlanFeature[];
+  cta: string;
+  variant: "default" | "secondary" | "accent";
+};
+
+const plans: PricingPlan[] = [
   {
     id: "free",
     name: "Free",
@@ -549,7 +569,7 @@ export default function PricingPage() {
           viewport={{ once: true, margin: "-100px" }}
           className="max-w-2xl mx-auto text-center"
         >
-          <Card className="border-klipio-primary/30" padding="xl">
+          <Card className="border-klipio-primary/30" padding="lg">
             <h2 className="text-2xl font-bold mb-3">
               Still have questions?
             </h2>

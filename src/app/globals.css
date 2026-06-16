@@ -3,15 +3,15 @@
 @tailwind utilities;
 
 :root {
-  --klipio-bg: #0A0A0F;
-  --klipio-surface: #1A1A24;
-  --klipio-surface-hover: #22222E;
-  --klipio-primary: #7B6D8D;
-  --klipio-accent: #B8A9C9;
-  --klipio-text: #E8E4EE;
-  --klipio-muted: #6B6B7B;
-  --klipio-success: #5B8C5A;
-  --klipio-danger: #B8604A;
+  --klipio-bg: #F7F6FB;
+  --klipio-surface: #FFFFFF;
+  --klipio-surface-hover: #EFEAFB;
+  --klipio-primary: #3A2DE0;
+  --klipio-accent: #9B7BFF;
+  --klipio-text: #141221;
+  --klipio-muted: #75727F;
+  --klipio-success: #257A4A;
+  --klipio-danger: #D22D2D;
 }
 
 * {
@@ -78,7 +78,7 @@ body {
 
 /* Gradient text utility */
 .gradient-text {
-  background: linear-gradient(135deg, #B8A9C9 0%, #7B6D8D 50%, #D4C8E0 100%);
+  background: linear-gradient(135deg, #3A2DE0 0%, #9B7BFF 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -86,26 +86,26 @@ body {
 
 /* Glass effect */
 .glass {
-  background: rgba(26, 26, 36, 0.6);
+  background: rgba(255, 255, 255, 0.74);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(123, 109, 141, 0.1);
+  border: 1px solid rgba(20, 18, 33, 0.08);
 }
 
 .glass-strong {
-  background: rgba(26, 26, 36, 0.85);
+  background: rgba(247, 246, 251, 0.9);
   backdrop-filter: blur(30px);
   -webkit-backdrop-filter: blur(30px);
-  border: 1px solid rgba(123, 109, 141, 0.15);
+  border: 1px solid rgba(20, 18, 33, 0.1);
 }
 
 /* Shimmer loading effect */
 .shimmer {
   background: linear-gradient(
     90deg,
-    rgba(123, 109, 141, 0.1) 25%,
-    rgba(123, 109, 141, 0.2) 50%,
-    rgba(123, 109, 141, 0.1) 75%
+    rgba(58, 45, 224, 0.08) 25%,
+    rgba(155, 123, 255, 0.16) 50%,
+    rgba(58, 45, 224, 0.08) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
@@ -113,11 +113,11 @@ body {
 
 /* Glow effects */
 .glow-purple {
-  box-shadow: 0 0 40px rgba(123, 109, 141, 0.3);
+  box-shadow: 0 0 40px rgba(58, 45, 224, 0.18);
 }
 
 .text-glow {
-  text-shadow: 0 0 40px rgba(123, 109, 141, 0.5);
+  text-shadow: 0 0 40px rgba(58, 45, 224, 0.2);
 }
 
 /* Input reset */
@@ -162,19 +162,6 @@ button {
   pointer-events: none;
   overflow: hidden;
   z-index: 0;
-}
-
-/* Responsive typography */
-@media (max-width: 640px) {
-  html {
-    font-size: 14px;
-  }
-}
-
-@media (min-width: 1536px) {
-  html {
-    font-size: 18px;
-  }
 }
 
 /* Reduced motion */
