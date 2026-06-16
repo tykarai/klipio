@@ -1,0 +1,194 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --klipio-bg: #0A0A0F;
+  --klipio-surface: #1A1A24;
+  --klipio-surface-hover: #22222E;
+  --klipio-primary: #7B6D8D;
+  --klipio-accent: #B8A9C9;
+  --klipio-text: #E8E4EE;
+  --klipio-muted: #6B6B7B;
+  --klipio-success: #5B8C5A;
+  --klipio-danger: #B8604A;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  background: var(--klipio-bg);
+  color: var(--klipio-text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--klipio-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--klipio-surface);
+  border-radius: 100px;
+  border: 2px solid var(--klipio-bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--klipio-primary);
+}
+
+/* Selection */
+::selection {
+  background: rgba(123, 109, 141, 0.4);
+  color: var(--klipio-text);
+}
+
+/* Focus styles */
+*:focus-visible {
+  outline: 2px solid var(--klipio-primary);
+  outline-offset: 2px;
+}
+
+/* Mobile tap highlight */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth text rendering */
+body {
+  text-rendering: optimizeLegibility;
+}
+
+/* Gradient text utility */
+.gradient-text {
+  background: linear-gradient(135deg, #B8A9C9 0%, #7B6D8D 50%, #D4C8E0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glass effect */
+.glass {
+  background: rgba(26, 26, 36, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(123, 109, 141, 0.1);
+}
+
+.glass-strong {
+  background: rgba(26, 26, 36, 0.85);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1px solid rgba(123, 109, 141, 0.15);
+}
+
+/* Shimmer loading effect */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(123, 109, 141, 0.1) 25%,
+    rgba(123, 109, 141, 0.2) 50%,
+    rgba(123, 109, 141, 0.1) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Glow effects */
+.glow-purple {
+  box-shadow: 0 0 40px rgba(123, 109, 141, 0.3);
+}
+
+.text-glow {
+  text-shadow: 0 0 40px rgba(123, 109, 141, 0.5);
+}
+
+/* Input reset */
+input, textarea {
+  font-family: inherit;
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--klipio-muted);
+}
+
+/* Button reset */
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* Prevent text selection on UI elements */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Animation utilities */
+.animate-in {
+  animation: fade-in-up 0.5s ease-out forwards;
+}
+
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.2s; }
+.stagger-3 { animation-delay: 0.3s; }
+.stagger-4 { animation-delay: 0.4s; }
+.stagger-5 { animation-delay: 0.5s; }
+
+/* Particle container */
+.particles-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+
+/* Responsive typography */
+@media (max-width: 640px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 1536px) {
+  html {
+    font-size: 18px;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
